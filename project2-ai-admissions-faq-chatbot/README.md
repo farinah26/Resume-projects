@@ -1,4 +1,4 @@
-AI Admissions FAQ Chatbot
+AI Admissions FAQ Chatbot (Read in Code Format for better Understanding)
 
 End-to-end AI chatbot using AWS Lambda (Java), DynamoDB, Amazon Bedrock, API Gateway, and an S3-hosted frontend
 
