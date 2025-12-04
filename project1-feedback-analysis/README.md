@@ -1,4 +1,4 @@
-Hybrid AWS Customer Feedback Analysis Platform
+Hybrid AWS Customer Feedback Analysis Platform (Please view this document in Code format.)
 Overview
 
 This project is a serverless AWS solution to collect, process, and analyze customer feedback from multiple sources such as CSV files, surveys, and forms.
