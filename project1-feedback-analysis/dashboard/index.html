@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer Support Intelligence</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand">CS <span>Support Intelligence</span></div>
+  <button class="active">Overview</button>
+  <button>Escalations</button>
+  <button>Feedback Queue</button>
+  <div class="note">Demo Mode<br><small>Local UI. AWS backend uses S3, Glue, Lambda, Comprehend, DynamoDB and SNS.</small></div>
+</aside>
+<main>
+  <header>
+    <div><p class="eyebrow">CUSTOMER SUCCESS OPERATIONS</p><h1>Customer Support Intelligence &amp; Escalation</h1><p>Turn raw feedback into prioritized, actionable support work.</p></div>
+    <span class="badge">Human-in-the-loop</span>
+  </header>
+
+  <section id="metrics" class="metrics"></section>
+
+  <section class="grid">
+    <div class="panel">
+      <p class="eyebrow">LIVE DEMO</p><h2>Analyze customer feedback</h2>
+      <textarea id="input">I was charged twice and support still has not responded.</textarea>
+      <div class="examples">
+        <button data-example="billing">Billing escalation</button>
+        <button data-example="technical">Technical issue</button>
+        <button data-example="positive">Positive feedback</button>
+        <button data-example="feature">Feature request</button>
+      </div>
+      <button id="analyze" class="primary">Analyze feedback</button>
+      <div id="result"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><div><p class="eyebrow">HUMAN REVIEW</p><h2>Escalation queue</h2></div><span id="count" class="count"></span></div>
+      <div id="queue"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">RECENT ACTIVITY</p><h2>Processed feedback</h2>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Feedback</th><th>Sentiment</th><th>Confidence</th><th>Category</th><th>Severity</th><th>Owner</th><th>Recommended action</th></tr></thead><tbody id="table"></tbody></table></div>
+  </section>
+</main>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
