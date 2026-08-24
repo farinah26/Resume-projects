@@ -329,4 +329,622 @@ public class FeedbackProcessor {
         /*
          * AI / NLP layer
          */
-        DetectSentimentResponse sentiment
+        DetectSentimentResponse sentimentResponse =
+                comprehend.detectSentiment(
+                        DetectSentimentRequest.builder()
+                                .text(feedback)
+                                .languageCode("en")
+                                .build()
+                );
+
+        String sentiment =
+                sentimentResponse.sentimentAsString();
+
+        double confidence =
+                getSentimentConfidence(
+                        sentiment,
+                        sentimentResponse.sentimentScore()
+                );
+
+        /*
+         * Deterministic business rules
+         */
+        String category =
+                categorizeFeedback(feedback);
+
+        String severity =
+                determineSeverity(
+                        feedback,
+                        sentiment
+                );
+
+        String recommendedOwner =
+                determineOwner(category);
+
+        String recommendedAction =
+                determineRecommendedAction(
+                        category,
+                        severity
+                );
+
+        boolean needsEscalation =
+                shouldEscalate(
+                        sentiment,
+                        severity
+                );
+
+        String processedDate =
+                DateTimeFormatter.ISO_INSTANT.format(
+                        Instant.now()
+                );
+
+        /*
+         * Processed CSV output
+         */
+        printer.printRecord(
+                id,
+                feedback,
+                sentiment,
+                String.format(
+                        Locale.US,
+                        "%.4f",
+                        confidence
+                ),
+                category,
+                severity,
+                recommendedOwner,
+                recommendedAction,
+                needsEscalation,
+                processedDate
+        );
+
+        /*
+         * Persist enriched record to DynamoDB
+         */
+        Map<String, AttributeValue> item =
+                new HashMap<>();
+
+        item.put(
+                "FeedbackID",
+                AttributeValue.builder()
+                        .s(id)
+                        .build()
+        );
+
+        item.put(
+                "FeedbackText",
+                AttributeValue.builder()
+                        .s(feedback)
+                        .build()
+        );
+
+        item.put(
+                "Sentiment",
+                AttributeValue.builder()
+                        .s(sentiment)
+                        .build()
+        );
+
+        item.put(
+                "SentimentConfidence",
+                AttributeValue.builder()
+                        .n(
+                                String.valueOf(
+                                        confidence
+                                )
+                        )
+                        .build()
+        );
+
+        item.put(
+                "Category",
+                AttributeValue.builder()
+                        .s(category)
+                        .build()
+        );
+
+        item.put(
+                "Severity",
+                AttributeValue.builder()
+                        .s(severity)
+                        .build()
+        );
+
+        item.put(
+                "RecommendedOwner",
+                AttributeValue.builder()
+                        .s(recommendedOwner)
+                        .build()
+        );
+
+        item.put(
+                "RecommendedAction",
+                AttributeValue.builder()
+                        .s(recommendedAction)
+                        .build()
+        );
+
+        item.put(
+                "NeedsEscalation",
+                AttributeValue.builder()
+                        .bool(needsEscalation)
+                        .build()
+        );
+
+        item.put(
+                "ProcessedDate",
+                AttributeValue.builder()
+                        .s(processedDate)
+                        .build()
+        );
+
+        item.put(
+                "Status",
+                AttributeValue.builder()
+                        .s("SUCCESS")
+                        .build()
+        );
+
+        dynamoDb.putItem(
+                PutItemRequest.builder()
+                        .tableName(DYNAMO_TABLE)
+                        .item(item)
+                        .build()
+        );
+
+        /*
+         * Human-in-the-loop escalation
+         */
+        if (
+                needsEscalation
+                        &&
+                SNS_TOPIC_ARN != null
+                        &&
+                !SNS_TOPIC_ARN.isBlank()
+        ) {
+
+            sendEscalationAlert(
+                    id,
+                    feedback,
+                    sentiment,
+                    confidence,
+                    category,
+                    severity,
+                    recommendedOwner,
+                    recommendedAction
+            );
+        }
+
+        System.out.println(
+                "Processed feedback "
+                        + id
+                        + " | sentiment="
+                        + sentiment
+                        + " | confidence="
+                        + String.format(
+                                Locale.US,
+                                "%.2f",
+                                confidence
+                        )
+                        + " | category="
+                        + category
+                        + " | severity="
+                        + severity
+                        + " | owner="
+                        + recommendedOwner
+                        + " | escalate="
+                        + needsEscalation
+        );
+
+        return needsEscalation;
+    }
+
+
+    private static void sendEscalationAlert(
+            String id,
+            String feedback,
+            String sentiment,
+            double confidence,
+            String category,
+            String severity,
+            String recommendedOwner,
+            String recommendedAction
+    ) {
+
+        String message =
+                "CUSTOMER FEEDBACK ESCALATION\n\n"
+                        + "Feedback ID: "
+                        + id
+                        + "\n"
+                        + "Sentiment: "
+                        + sentiment
+                        + "\n"
+                        + "Confidence: "
+                        + String.format(
+                                Locale.US,
+                                "%.1f%%",
+                                confidence * 100
+                        )
+                        + "\n"
+                        + "Category: "
+                        + category
+                        + "\n"
+                        + "Severity: "
+                        + severity
+                        + "\n"
+                        + "Recommended Owner: "
+                        + recommendedOwner
+                        + "\n"
+                        + "Recommended Action: "
+                        + recommendedAction
+                        + "\n\n"
+                        + "Customer Feedback:\n"
+                        + feedback;
+
+        sns.publish(
+                PublishRequest.builder()
+                        .topicArn(
+                                SNS_TOPIC_ARN
+                        )
+                        .subject(
+                                "Customer Feedback Escalation"
+                        )
+                        .message(message)
+                        .build()
+        );
+
+        System.out.println(
+                "SNS escalation sent for Feedback ID: "
+                        + id
+        );
+    }
+
+
+    /*
+     * Extract Comprehend confidence for the
+     * sentiment actually selected by the model.
+     */
+    private static double getSentimentConfidence(
+            String sentiment,
+            SentimentScore score
+    ) {
+
+        if (score == null || sentiment == null) {
+            return 0.0;
+        }
+
+        switch (
+                sentiment.toUpperCase(
+                        Locale.ROOT
+                )
+        ) {
+
+            case "POSITIVE":
+                return safeFloat(
+                        score.positive()
+                );
+
+            case "NEGATIVE":
+                return safeFloat(
+                        score.negative()
+                );
+
+            case "NEUTRAL":
+                return safeFloat(
+                        score.neutral()
+                );
+
+            case "MIXED":
+                return safeFloat(
+                        score.mixed()
+                );
+
+            default:
+                return 0.0;
+        }
+    }
+
+
+    private static double safeFloat(
+            Float value
+    ) {
+
+        return value == null
+                ? 0.0
+                : value.doubleValue();
+    }
+
+
+    /*
+     * Customer issue categorization
+     */
+    private static String categorizeFeedback(
+            String feedback
+    ) {
+
+        String text =
+                feedback.toLowerCase(
+                        Locale.ROOT
+                );
+
+        if (
+                containsAny(
+                        text,
+                        "payment",
+                        "charged",
+                        "charge",
+                        "billing",
+                        "refund",
+                        "invoice",
+                        "card"
+                )
+        ) {
+            return "BILLING";
+        }
+
+        if (
+                containsAny(
+                        text,
+                        "login",
+                        "password",
+                        "account",
+                        "locked",
+                        "sign in"
+                )
+        ) {
+            return "ACCOUNT_ACCESS";
+        }
+
+        if (
+                containsAny(
+                        text,
+                        "crash",
+                        "error",
+                        "bug",
+                        "broken",
+                        "not working",
+                        "failed",
+                        "failure"
+                )
+        ) {
+            return "TECHNICAL";
+        }
+
+        if (
+                containsAny(
+                        text,
+                        "support",
+                        "agent",
+                        "representative",
+                        "response",
+                        "wait",
+                        "waiting"
+                )
+        ) {
+            return "CUSTOMER_SUPPORT";
+        }
+
+        if (
+                containsAny(
+                        text,
+                        "feature",
+                        "wish",
+                        "suggest",
+                        "improve",
+                        "request"
+                )
+        ) {
+            return "FEATURE_REQUEST";
+        }
+
+        return "GENERAL";
+    }
+
+
+    /*
+     * Severity rules
+     */
+    private static String determineSeverity(
+            String feedback,
+            String sentiment
+    ) {
+
+        String text =
+                feedback.toLowerCase(
+                        Locale.ROOT
+                );
+
+        if (
+                containsAny(
+                        text,
+                        "charged twice",
+                        "charged three",
+                        "multiple charges",
+                        "fraud",
+                        "locked out",
+                        "cannot access",
+                        "can't access",
+                        "data loss",
+                        "security",
+                        "urgent"
+                )
+        ) {
+            return "HIGH";
+        }
+
+        if (
+                "NEGATIVE".equalsIgnoreCase(
+                        sentiment
+                )
+        ) {
+            return "MEDIUM";
+        }
+
+        return "LOW";
+    }
+
+
+    /*
+     * Recommended support team
+     */
+    private static String determineOwner(
+            String category
+    ) {
+
+        switch (category) {
+
+            case "BILLING":
+                return "Billing Support";
+
+            case "ACCOUNT_ACCESS":
+                return "Account Support";
+
+            case "TECHNICAL":
+                return "Technical Support";
+
+            case "CUSTOMER_SUPPORT":
+                return "Customer Success";
+
+            case "FEATURE_REQUEST":
+                return "Product Team";
+
+            default:
+                return "General Support";
+        }
+    }
+
+
+    /*
+     * Recommended operational action
+     */
+    private static String determineRecommendedAction(
+            String category,
+            String severity
+    ) {
+
+        if (
+                "HIGH".equalsIgnoreCase(
+                        severity
+                )
+        ) {
+            return "Open priority case and request immediate human review";
+        }
+
+        switch (category) {
+
+            case "BILLING":
+                return "Review payment history and follow up with the customer";
+
+            case "ACCOUNT_ACCESS":
+                return "Verify account status and initiate account recovery support";
+
+            case "TECHNICAL":
+                return "Create a technical support case with the reported error context";
+
+            case "CUSTOMER_SUPPORT":
+                return "Assign to Customer Success for follow-up";
+
+            case "FEATURE_REQUEST":
+                return "Capture request for product review and trend analysis";
+
+            default:
+                return "Monitor and include in customer feedback trends";
+        }
+    }
+
+
+    /*
+     * Human-in-the-loop decision
+     */
+    private static boolean shouldEscalate(
+            String sentiment,
+            String severity
+    ) {
+
+        return "HIGH".equalsIgnoreCase(
+                severity
+        )
+                ||
+                (
+                        "NEGATIVE".equalsIgnoreCase(
+                                sentiment
+                        )
+                                &&
+                        "MEDIUM".equalsIgnoreCase(
+                                severity
+                        )
+                );
+    }
+
+
+    private static boolean containsAny(
+            String text,
+            String... keywords
+    ) {
+
+        for (String keyword : keywords) {
+
+            if (
+                    text.contains(
+                            keyword
+                    )
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    private static String getRequiredField(
+            CSVRecord record,
+            String field
+    ) {
+
+        if (
+                !record.isMapped(field)
+        ) {
+            throw new IllegalArgumentException(
+                    "Required CSV column missing: "
+                            + field
+            );
+        }
+
+        String value =
+                record.get(field);
+
+        if (
+                value == null
+                        ||
+                value.trim().isEmpty()
+        ) {
+            throw new IllegalArgumentException(
+                    "Required field is empty: "
+                            + field
+            );
+        }
+
+        return value.trim();
+    }
+
+
+    private static String getEnvOrDefault(
+            String name,
+            String defaultValue
+    ) {
+
+        String value =
+                System.getenv(name);
+
+        if (
+                value == null
+                        ||
+                value.trim().isEmpty()
+        ) {
+            return defaultValue;
+        }
+
+        return value.trim();
+    }
+}
