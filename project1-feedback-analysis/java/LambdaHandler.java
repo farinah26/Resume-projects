@@ -1,93 +1,196 @@
 package com.farina.feedback;
 
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.comprehend.ComprehendClient;
-import software.amazon.awssdk.services.comprehend.model.DetectSentimentRequest;
-import software.amazon.awssdk.services.comprehend.model.DetectSentimentResponse;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.sns.SnsClient;
-import software.amazon.awssdk.services.sns.model.PublishRequest;
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.S3Event;
 
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVRecord;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.util.HashMap;
-import java.util.Map;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 
-public class LambdaHandler {
-    public void handleRequest() throws Exception {
-        String bucket = "farina-feedback-raw-20250929";
-        String key = "2025/10/sample-feedback-001.csv";
+public class LambdaHandler
+        implements RequestHandler<S3Event, String> {
 
-        // Initialize AWS clients
-        S3Client s3 = S3Client.builder().build();
-        ComprehendClient comprehendClient = ComprehendClient.builder().build();
-        DynamoDbClient dynamoDb = DynamoDbClient.builder().build();
-        SnsClient sns = SnsClient.builder().build();
+    private static final String CLEANED_PATH =
+            getEnvOrDefault(
+                    "CLEANED_PATH",
+                    "cleaned-feedback/"
+            );
 
-        // Read S3 CSV file
-        Reader reader = new InputStreamReader(
-            s3.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build())
-        );
+    @Override
+    public String handleRequest(
+            S3Event event,
+            Context context
+    ) {
 
-        Iterable<CSVRecord> records = CSVFormat.DEFAULT
-            .withFirstRecordAsHeader()
-            .withIgnoreHeaderCase()
-            .withTrim()
-            .parse(reader);
+        if (
+                event == null
+                        ||
+                event.getRecords() == null
+                        ||
+                event.getRecords().isEmpty()
+        ) {
 
-        for (CSVRecord record : records) {
-            String feedbackId = record.get("FeedbackID");
-            String customerName = record.get("CustomerName");
-            String date = record.get("Date");
-            String feedbackText = record.get("FeedbackText");
-            String ratingStr = record.get("Rating").trim();
+            context.getLogger().log(
+                    "No S3 records received.\n"
+            );
 
-            // Ensure rating is numeric
-            int rating = 0;
+            return "No records received.";
+        }
+
+        int processed = 0;
+        int skipped = 0;
+        int failed = 0;
+
+        for (
+                var record :
+                event.getRecords()
+        ) {
+
             try {
-                rating = Integer.parseInt(ratingStr);
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid rating for FeedbackID " + feedbackId + ": " + ratingStr);
-                continue; // skip this record
-            }
 
-            // Detect sentiment
-            DetectSentimentRequest request = DetectSentimentRequest.builder()
-                .text(feedbackText)
-                .languageCode("en")
-                .build();
-            DetectSentimentResponse response = comprehendClient.detectSentiment(request);
-            String sentiment = response.sentimentAsString();
+                String bucket =
+                        record
+                                .getS3()
+                                .getBucket()
+                                .getName();
 
-            // Prepare DynamoDB item
-            Map<String, AttributeValue> item = new HashMap<>();
-            item.put("FeedbackID", AttributeValue.builder().s(feedbackId).build());
-            item.put("CustomerName", AttributeValue.builder().s(customerName).build());
-            item.put("Date", AttributeValue.builder().s(date).build());
-            item.put("FeedbackText", AttributeValue.builder().s(feedbackText).build());
-            item.put("Rating", AttributeValue.builder().n(String.valueOf(rating)).build());
-            item.put("Sentiment", AttributeValue.builder().s(sentiment).build());
+                String encodedKey =
+                        record
+                                .getS3()
+                                .getObject()
+                                .getKey();
 
-            dynamoDb.putItem(PutItemRequest.builder()
-                .tableName("FeedbackTable")
-                .item(item)
-                .build());
+                /*
+                 * S3 event keys are URL encoded.
+                 */
+                String key =
+                        URLDecoder.decode(
+                                encodedKey,
+                                StandardCharsets.UTF_8
+                        );
 
-            // Send SNS alert if negative
-            if (sentiment.equalsIgnoreCase("NEGATIVE")) {
-                sns.publish(PublishRequest.builder()
-                    .topicArn("arn:aws:sns:us-east-1:512795167881:NegativeFeedbackAlerts")
-                    .message("Negative feedback detected: " + feedbackText)
-                    .build());
+                context.getLogger().log(
+                        "Received S3 event: "
+                                + bucket
+                                + "/"
+                                + key
+                                + "\n"
+                );
+
+                /*
+                 * Protect against accidental triggers from
+                 * processed output or unrelated files.
+                 */
+                if (
+                        !key.startsWith(
+                                CLEANED_PATH
+                        )
+                ) {
+
+                    context.getLogger().log(
+                            "Skipping object outside cleaned feedback path: "
+                                    + key
+                                    + "\n"
+                    );
+
+                    skipped++;
+
+                    continue;
+                }
+
+                if (
+                        !key
+                                .toLowerCase()
+                                .endsWith(".csv")
+                ) {
+
+                    context.getLogger().log(
+                            "Skipping non-CSV object: "
+                                    + key
+                                    + "\n"
+                    );
+
+                    skipped++;
+
+                    continue;
+                }
+
+                /*
+                 * Delegate all business processing to
+                 * FeedbackProcessor.
+                 */
+                FeedbackProcessor.processS3Object(
+                        bucket,
+                        key
+                );
+
+                processed++;
+
+                context.getLogger().log(
+                        "Successfully processed: "
+                                + key
+                                + "\n"
+                );
+
+            } catch (Exception e) {
+
+                failed++;
+
+                context.getLogger().log(
+                        "Failed processing S3 event: "
+                                + e.getMessage()
+                                + "\n"
+                );
             }
         }
 
-        reader.close();
-        System.out.println("✅ CSV processed successfully.");
+        String result =
+                "Lambda processing completed"
+                        + " | processed="
+                        + processed
+                        + " | skipped="
+                        + skipped
+                        + " | failed="
+                        + failed;
+
+        context.getLogger().log(
+                result + "\n"
+        );
+
+        /*
+         * If every attempted record failed, surface an
+         * exception so Lambda monitoring can detect it.
+         */
+        if (
+                processed == 0
+                        &&
+                failed > 0
+        ) {
+            throw new RuntimeException(
+                    "All feedback processing attempts failed."
+            );
+        }
+
+        return result;
+    }
+
+
+    private static String getEnvOrDefault(
+            String name,
+            String defaultValue
+    ) {
+
+        String value =
+                System.getenv(name);
+
+        if (
+                value == null
+                        ||
+                value.trim().isEmpty()
+        ) {
+            return defaultValue;
+        }
+
+        return value.trim();
     }
 }
