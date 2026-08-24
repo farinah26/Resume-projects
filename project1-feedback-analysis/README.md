@@ -462,11 +462,21 @@ project1-feedback-analysis/
 ├── Python/
 │   └── clean-feedback-glue.py
 │
-├── java/
-│   ├── FeedbackProcessor.java
-│   ├── LambdaHandler.java
-│   └── tests/
-│       └── AppTest.java
+├── src/
+│   ├── main/
+│   │   └── java/
+│   │       └── com/
+│   │           └── farina/
+│   │               └── feedback/
+│   │                   ├── FeedbackProcessor.java
+│   │                   └── LambdaHandler.java
+│   │
+│   └── test/
+│       └── java/
+│           └── com/
+│               └── farina/
+│                   └── feedback/
+│                       └── AppTest.java
 │
 ├── dashboard/
 │   ├── index.html
@@ -479,7 +489,11 @@ project1-feedback-analysis/
 │
 ├── docs/
 │   ├── architecture.png
+│   ├── sample-output.json
+│   ├── test-scenarios.md
 │   └── screenshots/
+│       ├── dashboard-overview.png
+│       └── high-priority-escalation.png
 │
 ├── pom.xml
 └── README.md
