@@ -1,0 +1,13 @@
+{
+  "FeedbackID": "F-1042",
+  "FeedbackText": "I was charged twice and support still has not responded.",
+  "Sentiment": "NEGATIVE",
+  "SentimentConfidence": 0.97,
+  "Category": "BILLING",
+  "Severity": "HIGH",
+  "RecommendedOwner": "Billing Support",
+  "RecommendedAction": "Open priority case and request immediate human review",
+  "NeedsEscalation": true,
+  "ProcessedDate": "2026-08-24T19:00:00Z",
+  "Status": "SUCCESS"
+}
