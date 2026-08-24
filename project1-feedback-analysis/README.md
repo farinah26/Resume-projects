@@ -26,6 +26,17 @@ The platform uses:
 - a support operations dashboard for visibility into feedback, priorities, routing, and escalations
 
 ---
+## Platform Preview
+
+![Customer Support Intelligence Dashboard](docs/screenshots/dashboard-overview.png)
+
+The support operations dashboard provides visibility into feedback volume, sentiment, severity, recommended ownership, and cases requiring human review.
+
+## Architecture
+
+![AI Customer Support Intelligence Architecture](docs/architecture.png)
+
+---
 
 ## Business Problem
 
@@ -334,6 +345,10 @@ true
 ```
 
 When escalation criteria are met, Amazon SNS publishes an alert containing relevant context for the support team.
+
+### High-Priority Escalation
+
+![High-Priority Customer Escalation](docs/screenshots/high-priority-escalation.png)
 
 ---
 
